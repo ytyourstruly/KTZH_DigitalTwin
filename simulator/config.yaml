@@ -3,7 +3,7 @@
 simulator:
   locomotive_id: "LOCO-7741"
   host: "0.0.0.0"
-  port: 9001
+  port: 8080
 
   # Message interval in milliseconds (default)
   interval_ms: 300

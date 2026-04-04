@@ -27,8 +27,7 @@ setup_logging(config)
 sim_cfg = config.get("simulator", {})
 LOCO_ID = sim_cfg.get("locomotive_id", "LOCO-0001")
 HOST    = sim_cfg.get("host", "0.0.0.0")
-PORT    = int(os.environ.get("PORT", sim_cfg.get("port", 9001)))
-
+PORT    = 8080
 
 engine      = SimulationEngine(locomotive_id=LOCO_ID)
 broadcaster = Broadcaster(engine=engine, config=config)

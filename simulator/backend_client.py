@@ -1,18 +1,11 @@
 """
-backend_client.py
-=================
-Example showing how your existing FastAPI backend can connect
-to the simulator as a WebSocket *client* and relay/store telemetry.
+Legacy standalone demo (FastAPI on :9000). Production wiring lives in the backend:
 
-Plug these pieces into your existing FastAPI backend.
+  backend/app/realtime/simulator_client.py  — ingest loop
+  backend/app/realtime/telemetry_hub.py     — browser fan-out
+  backend/app/api/routers/telemetry.py      — ``/api/v1/telemetry/stream``
 
-Usage pattern:
-  1. `SimulatorClient` connects to the simulator on startup.
-  2. Each message is parsed into a `TelemetryFrame` Pydantic model.
-  3. Frames are placed on an `asyncio.Queue`.
-  4. An optional worker task drains the queue (e.g. writes to PostgreSQL).
-  5. A `/telemetry/latest` REST endpoint returns the latest frame.
-  6. A `/telemetry/stream` WebSocket endpoint fans out to browser clients.
+Enable with ``SIMULATOR_INGEST_ENABLED=true`` and run the simulator on ``SIMULATOR_WS_URL``.
 """
 
 from __future__ import annotations
@@ -30,7 +23,7 @@ from pydantic import BaseModel
 
 logger = logging.getLogger("backend.simulator_client")
 
-SIMULATOR_WS_URL = "ws://localhost:9001/telemetry"
+SIMULATOR_WS_URL = "ws://localhost:8080/telemetry"
 RECONNECT_DELAY_SEC = 3
 
 
