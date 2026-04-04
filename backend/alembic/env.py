@@ -14,7 +14,7 @@ if str(_backend_root) not in sys.path:
     sys.path.insert(0, str(_backend_root))
 os.chdir(_backend_root)
 
-from app.config import get_settings  # noqa: E402
+from app.core.config import get_settings  # noqa: E402
 from app.db.base import Base  # noqa: E402
 import app.models  # noqa: E402,F401
 

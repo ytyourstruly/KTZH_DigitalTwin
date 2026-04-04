@@ -1,11 +1,18 @@
 from functools import lru_cache
+from typing import Literal
 
-from pydantic import computed_field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import computed_field, field_validator
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
 
+    session_ttl_hours: float = 168.0
+    session_cookie_name: str = "session"
+    session_cookie_path: str = "/"
+    session_cookie_domain: str | None = None
+    session_cookie_secure: bool = False
+    session_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
     database_url: str = ""
     postgres_user: str = "postgres"
     postgres_password: str = ""
@@ -16,6 +23,15 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+
+    @field_validator("session_cookie_domain", mode="before")
+    @classmethod
+    def empty_cookie_domain_none(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
     @computed_field
     @property
