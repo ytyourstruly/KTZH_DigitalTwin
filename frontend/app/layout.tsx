@@ -22,7 +22,7 @@ export const metadata: Metadata = {
         media: '(prefers-color-scheme: dark)',
       },
       {
-        url: '/icon.svg',
+        url: '/header-logo-ktzh.svg',
         type: 'image/svg+xml',
       },
     ],

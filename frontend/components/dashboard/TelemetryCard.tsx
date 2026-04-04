@@ -136,7 +136,7 @@ export function TelemetryCard({
               "text-xs font-mono tabular-nums",
               delta > 0 ? "text-status-warning" : delta < 0 ? "text-status-normal" : "text-muted-foreground"
             )}>
-              {delta > 0 ? "+" : ""}{delta}{deltaUnit ?? unit} /мин
+              {delta > 0 ? "+" : ""}{delta}{deltaUnit ?? unit} 
             </span>
           </div>
         )}

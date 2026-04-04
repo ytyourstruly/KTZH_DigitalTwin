@@ -12,6 +12,8 @@ interface RouteStripProps {
 export function RouteStrip({ loco }: RouteStripProps) {
   const currentKm = loco.distanceCovered
   const totalKm = ROUTE_STATIONS[ROUTE_STATIONS.length - 1].km
+  const startStation = ROUTE_STATIONS[0]
+  const endStation = ROUTE_STATIONS[ROUTE_STATIONS.length - 1]
 
   const passedStations = ROUTE_STATIONS.filter((s) => s.km < currentKm)
   const nextStation = ROUTE_STATIONS.find((s) => s.status === "next")
@@ -24,7 +26,9 @@ export function RouteStrip({ loco }: RouteStripProps) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Navigation className="w-4 h-4 text-accent" />
-          <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Маршрут: Астана → Алматы</span>
+          <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
+            Маршрут: {startStation?.name ?? "Начало"} → {endStation?.name ?? "Конец"}
+          </span>
         </div>
         <div className="flex items-center gap-3 text-xs font-mono text-muted-foreground">
           <span className="font-semibold text-foreground">{loco.distanceCovered}</span>

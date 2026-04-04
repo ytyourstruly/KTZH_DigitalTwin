@@ -46,8 +46,9 @@ function HealthGauge({ score, status }: HealthGaugeProps) {
   const fillEndAngle = 120 + Math.max((score / 100) * 300, score === 0 ? 0 : 2)
   const fillPath = arcPath(120, fillEndAngle)
 
-  // Tick marks at 0 / 25 / 50 / 75 / 100
-  const tickAngles = [0, 25, 50, 75, 100].map((val) => 120 + (val / 100) * 300)
+  // Tick marks split into 3 equal segments (0 / 33 / 66 / 100)
+  const tickAngles = [0, 33.33, 66.66, 100].map((val) => 120 + (val / 100) * 300)
+  const displayScore = Math.round(score)
 
   return (
     <svg viewBox="0 0 128 108" className="w-full max-w-[180px] mx-auto overflow-visible">
@@ -87,7 +88,7 @@ function HealthGauge({ score, status }: HealthGaugeProps) {
         className="fill-foreground font-mono font-bold"
         fontSize="24"
       >
-        {score}
+        {displayScore}
       </text>
       <text
         x={cx}
@@ -109,6 +110,7 @@ interface HealthIndexCardProps {
 }
 
 export function HealthIndexCard({ loco }: HealthIndexCardProps) {
+  const isCritical = loco.healthStatus === "critical"
   const statusLabel = {
     normal: "Нормально",
     warning: "Внимание",
@@ -122,7 +124,10 @@ export function HealthIndexCard({ loco }: HealthIndexCardProps) {
   }
 
   return (
-    <div className="bg-card border border-border rounded p-4 flex flex-col gap-3 h-full">
+    <div className={cn(
+      "bg-card border border-border rounded p-4 flex flex-col gap-3 h-full",
+      isCritical && "ring-2 ring-status-critical/30"
+    )}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -131,7 +136,8 @@ export function HealthIndexCard({ loco }: HealthIndexCardProps) {
         </div>
         <span className={cn(
           "text-xs font-mono font-semibold px-2 py-1 rounded border",
-          statusClass[loco.healthStatus]
+          statusClass[loco.healthStatus],
+          isCritical && "animate-pulse"
         )}>
           {statusLabel[loco.healthStatus]}
         </span>

@@ -16,7 +16,7 @@ interface HeaderProps {
 function ConnectionBadge({ status }: { status: LocomotiveData["connectionStatus"] }) {
   const config = {
     online: { label: "Онлайн", icon: Wifi, className: "text-status-normal bg-status-normal-bg border-status-normal/30" },
-    degraded: { label: "Деградировано", icon: AlertTriangle, className: "text-status-warning bg-status-warning-bg border-status-warning/30" },
+    degraded: { label: "Нестабильная связь", icon: AlertTriangle, className: "text-status-warning bg-status-warning-bg border-status-warning/30" },
     offline: { label: "Офлайн", icon: WifiOff, className: "text-status-critical bg-status-critical-bg border-status-critical/30" },
   }
   const c = config[status]

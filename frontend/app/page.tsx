@@ -10,6 +10,7 @@ import { TrendChartsSection } from "@/components/dashboard/TrendChartsSection"
 import { RouteStrip } from "@/components/dashboard/RouteStrip"
 import { RecommendationsPanel } from "@/components/dashboard/RecommendationsPanel"
 import { LOCOMOTIVES, ALERTS, CHART_DATA, type LocomotiveData } from "@/lib/mock-data"
+import { cn } from "@/lib/utils"
 
 export default function DashboardPage() {
   const [selectedLoco, setSelectedLoco] = useState<LocomotiveData>(LOCOMOTIVES[0])
@@ -75,6 +76,19 @@ export default function DashboardPage() {
     : liveData.brakePressure
   const pressureDelta = Math.round((liveData.brakePressure - prevPressure) * 100) / 100
 
+  const fuelPercent = Math.max(0, Math.min(100, liveData.fuelLevel))
+  const fuelStatus = fuelPercent > 60 ? "normal" : fuelPercent > 30 ? "warning" : "critical"
+  const fuelValueClass = fuelStatus === "normal"
+    ? "text-status-normal"
+    : fuelStatus === "warning"
+    ? "text-status-warning"
+    : "text-status-critical"
+  const fuelBorderClass = fuelStatus === "normal"
+    ? "border-l-status-normal"
+    : fuelStatus === "warning"
+    ? "border-l-status-warning"
+    : "border-l-status-critical"
+
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background">
       {/* Header */}
@@ -118,10 +132,15 @@ export default function DashboardPage() {
               }
               tooltip="Текущая скорость. Лимит зависит от участка пути."
             />
-            <div className="bg-card border border-border rounded p-3 flex flex-col gap-2 min-h-[100px] border-l-2 border-l-status-normal">
+            <div className={cn(
+              "bg-card border border-border rounded p-3 flex flex-col gap-2 min-h-[100px] border-l-2",
+              fuelBorderClass
+            )}>
               <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Уровень топлива</span>
               <div className="flex-1 flex flex-col justify-center">
-                <div className="text-3xl font-mono font-bold text-foreground tabular-nums">{liveData.fuelLevel}%</div>
+                <div className={cn("text-3xl font-mono font-bold tabular-nums", fuelValueClass)}>
+                  {liveData.fuelLevel}%
+                </div>
                 <div className="text-xs text-muted-foreground font-mono mt-2">
                   {Math.round((liveData.fuelLevel / 100) * 10000)} / 10000 л
                 </div>
