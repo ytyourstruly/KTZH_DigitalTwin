@@ -33,7 +33,7 @@ RANGES = {
     # Celsius
     "engine_temp": dict(min=60,   max=120,  centre=88,  sigma=2),
     # bar
-    "oil_pressure":dict(min=1.5,  max=6.0,  centre=3.8, sigma=0.1),
+    "oil_pressure":dict(min=1.5,  max=6.0,  centre=4.5, sigma=0.1),
     # Volts
     "voltage":     dict(min=22.0, max=30.0, centre=27.5,sigma=0.2),
     # Amperes
@@ -91,3 +91,23 @@ class StatusResponse(BaseModel):
     connected_clients: int
     messages_sent:  int
     uptime_seconds: float
+class FrequencyPreset(str, Enum):
+    NORMAL   = "normal"    #  1 msg/s
+    HIGHLOAD = "highload"  # 10 msg/s
+    BURST    = "burst"     # 50 msg/s  (timed, reverts automatically)
+ 
+PRESET_HZ: dict[FrequencyPreset, float] = {
+    FrequencyPreset.NORMAL:   1.0,
+    FrequencyPreset.HIGHLOAD: 10.0,
+    FrequencyPreset.BURST:    50.0,
+}
+ 
+BURST_DURATION_SEC: int = 3
+class FrequencyRequest(BaseModel):
+    preset: FrequencyPreset = Field(
+        ...,
+        description=(
+            "normal=1 Hz | highload=10 Hz | "
+            "burst=50 Hz for 3 s then reverts to previous preset"
+        ),
+    )

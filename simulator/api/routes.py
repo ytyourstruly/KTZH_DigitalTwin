@@ -2,19 +2,23 @@
 routes.py — HTTP control endpoints for the simulator.
 
 POST /mode        → manually set simulation mode
-GET  /status      → current mode + stats
-POST /rate        → change message frequency
-POST /burst       → enable/disable burst mode
+GET  /status      → current mode + stats (now includes Hz fields)
+POST /rate        → change message frequency (raw ms, backwards-compat)
+POST /frequency   → set frequency by named preset (normal / highload / burst)
+POST /burst       → legacy burst toggle (delegates to /frequency)
 POST /reset       → reset to normal
 POST /fault       → toggle fault injection settings
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
 
-from telemetry import SimMode, ModeRequest, RateRequest, StatusResponse
+from telemetry import (
+    SimMode, FrequencyPreset,
+    ModeRequest, RateRequest, FrequencyRequest, StatusResponse,
+)
 from broadcaster import Broadcaster
 
 router = APIRouter()
@@ -55,31 +59,49 @@ async def get_status():
     return _b().status
 
 
-@router.post("/rate", summary="Change message frequency")
+@router.post("/rate", summary="Change message interval (raw ms)")
 async def set_rate(req: RateRequest):
     """
-    Set the base interval between telemetry messages (50–10 000 ms).
-    Burst mode overrides this with interval / burst_multiplier.
+    Set the base interval between telemetry messages (20–10 000 ms).
+    Use `/frequency` for the named Hz presets instead.
     """
     _b().set_interval(req.interval_ms)
     return {"ok": True, "interval_ms": req.interval_ms}
 
 
+@router.post("/frequency", summary="Set frequency by named preset")
+async def set_frequency(req: FrequencyRequest):
+    """
+    Switch message rate using a named preset:
+
+    | Preset     | Rate    | Behaviour                                    |
+    |------------|---------|----------------------------------------------|
+    | `normal`   | 1 Hz    | 1 message/s — persistent                    |
+    | `highload` | 10 Hz   | 10 messages/s — persistent                  |
+    | `burst`    | 50 Hz   | 50 messages/s for **3 seconds**, then reverts to the previous preset |
+
+    Burst is fire-and-forget — no need to manually cancel it.
+    """
+    result = _b().set_frequency(req.preset)
+    return {"ok": True, **result}
+
+
 @router.post("/reset", summary="Reset simulator to normal mode")
 async def reset():
-    """Snap all parameters back to nominal values and enter NORMAL mode."""
+    """Snap all parameters back to nominal values, enter NORMAL mode, and set frequency to normal (1 Hz)."""
     _b().reset()
-    return {"ok": True, "mode": "normal"}
+    return {"ok": True, "mode": "normal", "frequency_preset": "normal"}
 
 
 class BurstRequest(BaseModel):
     active: bool
 
-@router.post("/burst", summary="Toggle burst (high-load) mode")
+@router.post("/burst", summary="Toggle burst mode (legacy — prefer /frequency)")
 async def set_burst(req: BurstRequest):
     """
-    Enable burst mode to simulate 10× message rate.
-    Useful for high-load testing of the backend.
+    Legacy endpoint. Delegates to `/frequency`:
+    - `active: true`  → preset=burst  (50 Hz / 3 s)
+    - `active: false` → reverts to base preset
     """
     _b().set_burst(req.active)
     return {"ok": True, "burst_active": req.active}
