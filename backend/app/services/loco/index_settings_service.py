@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from uuid import UUID
+
 from app.core.exceptions import NotFoundError
 from app.models.loco import IndexSettings
 from app.repositories.protocols import IndexSettingsRepository
+from app.schemas.index_settings import IndexSettingPatch
 
 
 class IndexSettingsService:
@@ -39,3 +43,17 @@ class IndexSettingsService:
 
     async def remove(self, row: IndexSettings) -> None:
         await self._settings.delete(row)
+
+    async def patch_by_metric_name(
+        self,
+        metric_name: str,
+        body: IndexSettingPatch,
+        *,
+        updated_by: UUID,
+    ) -> IndexSettings:
+        row = await self.require_by_metric_name(metric_name)
+        for key, value in body.model_dump(exclude_unset=True).items():
+            setattr(row, key, value)
+        row.updated_by = updated_by
+        row.updated_at = datetime.now(UTC)
+        return row

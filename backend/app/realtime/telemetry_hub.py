@@ -13,6 +13,11 @@ _latest_slot: list[dict[str, Any] | None] = [None]
 
 async def register_browser_ws(ws: WebSocket) -> None:
     await ws.accept()
+    subscribe_browser_ws(ws)
+
+
+def subscribe_browser_ws(ws: WebSocket) -> None:
+    """Register a client that was already accepted (e.g. after WebSocket auth)."""
     _clients.add(ws)
 
 

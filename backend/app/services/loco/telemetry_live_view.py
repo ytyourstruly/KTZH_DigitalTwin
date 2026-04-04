@@ -1,7 +1,7 @@
 """
 Rule-based live dashboard view from a simulator frame: thresholds, health index, trends, factors.
 
-Pure functions + small in-memory history per locomotive (for Δ/min). No I/O.
+Штрафы и рекомендации считаются от норм полосы (gap / w)
 """
 
 from __future__ import annotations
@@ -9,13 +9,14 @@ from __future__ import annotations
 import time
 from collections import deque
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Literal
 
 from app.schemas.simulator_frame import SimulatorFrame
 
 UiSeverity = Literal["normal", "warning", "critical", "unknown"]
 
-# Пороги в духе макета дашборда (норма → предупреждение → критично по отступу от диапазона)
+
 @dataclass(frozen=True, slots=True)
 class MetricBand:
     key: str
@@ -23,7 +24,7 @@ class MetricBand:
     unit: str
     norm_min: float | None
     norm_max: float | None
-    warn_margin_ratio: float = 0.12  # доля ширины нормы для мягкой зоны
+    warn_margin_ratio: float
 
 
 METRIC_BANDS: tuple[MetricBand, ...] = (
@@ -36,7 +37,6 @@ METRIC_BANDS: tuple[MetricBand, ...] = (
 )
 
 _HISTORY: dict[str, deque[tuple[float, dict[str, float]]]] = {}
-_HISTORY_MAX = 32
 _CODE_TO_UUID: dict[str, str] = {}
 
 
@@ -46,9 +46,10 @@ def remember_locomotive_uuid(code: str, uuid: str) -> None:
 
 
 def _history_deque(loco_id: str) -> deque[tuple[float, dict[str, float]]]:
+    maxlen = max(8, min(64, len(METRIC_BANDS) * 8))
     d = _HISTORY.get(loco_id)
-    if d is None:
-        d = deque(maxlen=_HISTORY_MAX)
+    if d is None or d.maxlen != maxlen:
+        d = deque(maxlen=maxlen)
         _HISTORY[loco_id] = d
     return d
 
@@ -59,54 +60,103 @@ def _band_width(band: MetricBand) -> float:
     return max(band.norm_max - band.norm_min, 1e-6)
 
 
+def _soft_margin(band: MetricBand) -> float:
+    return _band_width(band) * band.warn_margin_ratio
+
+
+def _penalty_and_severity(gap: float, w: float) -> tuple[UiSeverity, float]:
+    """Штраф только из gap и ширины мягкой зоны w: penalty = gap²/w, severity по gap/w."""
+    if gap <= 0:
+        return "normal", 0.0
+    den = max(w, 1e-9)
+    ratio = gap / den
+    severity: UiSeverity = "critical" if ratio > 2.0 else "warning"
+    penalty = min(100.0, (gap * gap) / den)
+    return severity, penalty
+
+
 def severity_for_band(
     value: float | None,
     band: MetricBand,
 ) -> tuple[UiSeverity, float]:
-    """
-    Возвращает UI-статус и штраф 0..40 для индекса (0 = нет штрафа).
-    """
     if value is None:
         return "unknown", 0.0
     lo, hi = band.norm_min, band.norm_max
     if lo is None or hi is None:
         return "normal", 0.0
-    w = _band_width(band) * band.warn_margin_ratio
+    w = _soft_margin(band)
     if lo <= value <= hi:
         return "normal", 0.0
     if value < lo:
-        gap = lo - value
-        if gap > 2 * w:
-            return "critical", min(40.0, 12.0 + gap * 8.0)
-        return "warning", min(25.0, 6.0 + gap * 5.0)
-    gap = value - hi
-    if gap > 2 * w:
-        return "critical", min(40.0, 12.0 + gap * 4.0)
-    return "warning", min(25.0, 6.0 + gap * 3.0)
+        return _penalty_and_severity(lo - value, w)
+    return _penalty_and_severity(value - hi, w)
+
+
+@lru_cache(maxsize=1)
+def _theoretical_max_metric_penalty() -> float:
+    """Сумма штрафов, если по каждой метрике отклонение ≈ 2.5× полной ширины нормы."""
+    total = 0.0
+    for band in METRIC_BANDS:
+        bw = _band_width(band)
+        w = _soft_margin(band)
+        gap = 2.5 * bw
+        _, p = _penalty_and_severity(gap, w)
+        total += p
+    return max(total, 1e-6)
 
 
 def _apply_simulator_hint(
     hint: str | None,
     index: float,
     status_order: int,
+    metric_penalty_total: float,
 ) -> tuple[float, int]:
-    """Усиливаем критичность по health_hint симулятора. status_order: 0 norm, 1 att, 2 crit."""
+    """Корректируем индекс по health_hint; сила — только stress = доля от теор. max штрафов."""
     h = (hint or "ok").lower()
+    tmax = _theoretical_max_metric_penalty()
+    stress = min(1.0, metric_penalty_total / tmax)
+    damp = stress ** 0.5
+    rel_idx = index / 100.0
     if h == "critical":
-        return min(index, 25.0), max(status_order, 2)
+        # Только снижение индекса, factor ∈ (0, 1]
+        factor = max(0.05, min(1.0, 1.0 - damp))
+        return index * factor, max(status_order, 2)
     if h in ("warning_high", "spike"):
-        return min(index, 55.0), max(status_order, 1)
+        factor = min(
+            1.0,
+            max(rel_idx * 0.5, 1.0 - damp * (1.0 - rel_idx * 0.28)),
+        )
+        return index * factor, max(status_order, 1)
     if h in ("warning_low", "degrading", "glitch"):
-        return min(index, 72.0), max(status_order, 1)
+        factor = min(
+            1.0,
+            max(0.35 + rel_idx * 0.45, 1.0 - damp * (1.0 - rel_idx * 0.52)),
+        )
+        return index * factor, max(status_order, 1)
     return index, status_order
 
 
-def _status_from_order(order: int) -> str:
-    if order >= 2:
-        return "critical"
-    if order == 1:
+def _resolve_health_status(index: float, status_order: int) -> str:
+    """
+    Общий статус согласован с интегральным индексом (как в кейсе: норма / внимание / критично).
+
+    Красные карточки метрик не переводят весь поезд в «критично», если индекс ещё высокий:
+    тогда минимум «внимание». «Критично» только при низком индексе или совокупной тяжести.
+    """
+    if index >= 80.0:
+        overall = "normal"
+    elif index >= 50.0:
+        overall = "attention"
+    else:
+        overall = "critical"
+
+    if status_order >= 2:
+        if index < 45.0:
+            return "critical"
         return "attention"
-    return "normal"
+    if status_order >= 1 and overall == "normal":
+        return "attention"
+    return overall
 
 
 def _trends_for_loco(loco_id: str, snapshot: dict[str, float]) -> dict[str, float | None]:
@@ -132,43 +182,46 @@ def _trends_for_loco(loco_id: str, snapshot: dict[str, float]) -> dict[str, floa
     return trends
 
 
-def _error_penalty(codes: list[str]) -> float:
+def _error_penalty(codes: list[str], metric_penalty_total: float) -> float:
     if not codes:
         return 0.0
-    return min(35.0, 6.0 * len(codes) + 4.0)
+    per_band_avg = metric_penalty_total / len(METRIC_BANDS)
+    # Вклад кода растёт со средним стрессом по метрикам
+    raw = len(codes) * (per_band_avg + _theoretical_max_metric_penalty() / (len(METRIC_BANDS) + len(codes)))
+    headroom = max(0.0, 100.0 - metric_penalty_total)
+    return min(headroom, raw)
 
 
 def _top_factors(
     metric_penalties: list[tuple[str, str, float, UiSeverity]],
     error_codes: list[str],
-    limit: int = 5,
+    metric_penalty_total: float,
+    limit: int,
 ) -> list[dict[str, Any]]:
+    tmax = _theoretical_max_metric_penalty()
+    scale = 100.0 / tmax
+    worst_pen = max((p for _, _, p, _ in metric_penalties), default=0.0)
+    worst_scaled = worst_pen * scale
     rows: list[tuple[float, dict[str, Any]]] = []
     for key, label, pen, sev in metric_penalties:
         if pen <= 0:
             continue
-        impact = -round(min(40.0, pen), 1)
+        imp_mag = pen * scale
+        # «Критично» по узкому диапазону даёт малый gap²/w, но для UI вклад не ниже доли от худшего штрафа
+        if sev == "critical":
+            imp_mag = max(imp_mag, worst_scaled * (pen / max(worst_pen, 1e-9)) ** 0.35)
+            imp_mag = max(imp_mag, worst_scaled * 0.82)
+        impact = -round(min(40.0, imp_mag), 1)
+        rows.append((pen, {"key": key, "label": label, "impact_pct": max(-40.0, impact), "severity": sev}))
+    n_err = len(error_codes)
+    for i, code in enumerate(error_codes):
+        share = metric_penalty_total / max(n_err, 1)
+        pen_equiv = share * (1.0 + i / max(n_err, 1))
+        impact = -round(min(35.0, pen_equiv * scale), 1)
         rows.append(
             (
-                pen,
-                {
-                    "key": key,
-                    "label": label,
-                    "impact_pct": impact,
-                    "severity": sev,
-                },
-            )
-        )
-    for code in error_codes[:5]:
-        rows.append(
-            (
-                15.0,
-                {
-                    "key": code,
-                    "label": code.replace("_", " "),
-                    "impact_pct": -8.0,
-                    "severity": "warning",
-                },
+                pen_equiv,
+                {"key": code, "label": code.replace("_", " "), "impact_pct": max(-35.0, impact), "severity": "warning"},
             )
         )
     rows.sort(key=lambda x: -x[0])
@@ -182,97 +235,212 @@ def _alerts_from_metrics(
     out: list[dict[str, Any]] = []
     bp = metric_cards.get("brake_pressure")
     if bp and bp["status"] in ("warning", "critical") and frame.oil_pressure is not None:
+        lo = float(bp["norm_min"])
+        p = float(frame.oil_pressure)
+        deficit = max(0.0, (lo - p) / max(lo, 1e-9))
         out.append(
             {
                 "severity": "critical" if bp["status"] == "critical" else "attention",
                 "subsystem": "Тормозная система",
                 "message": (
-                    f"Давление тормоза вне нормы — сейчас {frame.oil_pressure} bar "
-                    f"(норма {bp['norm_min']}–{bp['norm_max']} bar)."
+                    f"Давление тормоза вне нормы — {p} bar (норма {bp['norm_min']}–{bp['norm_max']} bar), "
+                    f"ниже нижнего порога на {deficit * 100:.1f}% от величины порога."
                 ),
             }
         )
     et = metric_cards.get("engine_temp")
     if et and et["status"] in ("warning", "critical") and frame.engine_temp is not None:
+        hi = float(et["norm_max"])
+        v = float(frame.engine_temp)
+        over = max(0.0, v - hi)
+        span = max(float(et["norm_max"]) - float(et["norm_min"] or 0), 1e-6)
         out.append(
             {
                 "severity": "attention",
                 "subsystem": "Тяговый мотор",
                 "message": (
-                    f"Температура тяги повышена — {frame.engine_temp}°C, "
-                    f"предел нормы {et['norm_max']}°C."
+                    f"Температура тяги {v}°C (норма до {hi}°C); превышение {over:.1f}°C "
+                    f"({over / span * 100:.1f}% от ширины нормального диапазона)."
                 ),
             }
         )
-    v = metric_cards.get("voltage")
-    if v and v["status"] in ("warning", "critical") and frame.voltage is not None:
+    vcard = metric_cards.get("voltage")
+    if vcard and vcard["status"] in ("warning", "critical") and frame.voltage is not None:
+        lo, hi = float(vcard["norm_min"]), float(vcard["norm_max"])
+        mid = (lo + hi) / 2.0
+        fv = float(frame.voltage)
+        dev = abs(fv - mid) / max(hi - lo, 1e-6)
         out.append(
             {
                 "severity": "attention",
                 "subsystem": "Электрическая система",
                 "message": (
-                    f"Напряжение вне нормы — {frame.voltage} V "
-                    f"(норма {v['norm_min']}–{v['norm_max']} V)."
+                    f"Напряжение {fv} V (норма {lo}–{hi} V); отклонение от середины диапазона "
+                    f"{dev * 100:.1f}% от его ширины."
                 ),
             }
         )
     c = metric_cards.get("traction_current")
     if c and c["status"] in ("warning", "critical") and frame.current is not None:
+        hi = float(c["norm_max"])
+        cur = float(frame.current)
+        over = max(0.0, cur - hi)
         out.append(
             {
                 "severity": "attention",
                 "subsystem": "Тяга",
                 "message": (
-                    f"Ток нагрузки выше нормы — {frame.current} A "
-                    f"(макс. нормы {c['norm_max']} A)."
+                    f"Ток нагрузки {cur} A при максимуме нормы {hi} A; запас до предела "
+                    f"{over:.1f} A."
                 ),
             }
         )
-    return out[:6]
+    return out[: len(METRIC_BANDS)]
 
 
-def _recommendations(metric_cards: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def _traction_reduction_pct(et: dict[str, Any]) -> int:
+    """Доля нагрузки: доля пути от mid до hi, усиленная при critical (через штрафную полосу w)."""
+    v = et.get("value")
+    lo = et.get("norm_min")
+    hi = et.get("norm_max")
+    if v is None or lo is None or hi is None:
+        return 0
+    lo, hi, v = float(lo), float(hi), float(v)
+    band = next(b for b in METRIC_BANDS if b.key == "engine_temp")
+    w = _soft_margin(band)
+    mid = (lo + hi) / 2.0
+    span_hi = max(hi - mid, 1e-9)
+    if v <= mid:
+        base = 0.0
+    else:
+        base = (v - mid) / span_hi
+    base = max(0.0, min(1.0, base))
+    status = et.get("status")
+    if status == "critical":
+        urgency = min(1.0, base + w / max(hi - lo, 1e-9))
+    elif status == "warning":
+        urgency = base * (1.0 - w / max(2 * (hi - lo), 1e-9))
+    else:
+        urgency = 0.0
+    pct = int(round(base * 100 * max(urgency, 0.15)))
+    return max(5, min(50, pct))
+
+
+def _monitor_minutes_engine_temp(et: dict[str, Any], trends: dict[str, float | None]) -> int:
+    v = et.get("value")
+    hi = et.get("norm_max")
+    lo = et.get("norm_min")
+    if v is None or hi is None:
+        return 1
+    v, hi = float(v), float(hi)
+    lo = float(lo or 0.0)
+    headroom = max(0.0, hi - v)
+    span = max(hi - lo, 1e-6)
+    tr = trends.get("engine_temp_per_min")
+    if tr is not None and tr > 1e-9:
+        est_min = headroom / tr
+        cap = int(round(span / tr)) if tr > 1e-9 else int(round(headroom))
+        return max(1, min(max(cap, 1), int(round(est_min))))
+    if tr is not None and tr < -1e-9:
+        return max(1, int(round(headroom * len(METRIC_BANDS) / max(span, 1e-6))))
+    return max(1, int(round(headroom * len(METRIC_BANDS) / max(span, 1e-6))))
+
+
+def _temp_trip_celsius(et: dict[str, Any]) -> float:
+    hi = float(et.get("norm_max") or 95.0)
+    band = next(b for b in METRIC_BANDS if b.key == "engine_temp")
+    w = _soft_margin(band)
+    # Контрольная отметка: верх нормы минус мягкая зона (эквивалентно hi - min(w, …))
+    return hi - w
+
+
+def _recommendations(
+    metric_cards: dict[str, dict[str, Any]],
+    trends: dict[str, float | None],
+    frame: SimulatorFrame,
+) -> list[dict[str, Any]]:
     recs: list[dict[str, Any]] = []
     et = metric_cards.get("engine_temp")
     if et and et["status"] != "normal":
+        pct = _traction_reduction_pct(et)
         recs.append(
             {
                 "priority": "high",
                 "urgency_ru": "Немедленно",
-                "action_ru": "Снизить нагрузку тяги на 15%",
-                "reason_ru": "Снижение тепловыделения при приближении к пределу температуры.",
+                "action_ru": f"Снизить нагрузку тяги примерно на {pct}%",
+                "reason_ru": (
+                    f"Оценка по T={et.get('value')}°C и полосе нормы "
+                    f"[{et.get('norm_min')}–{et.get('norm_max')}]: снижение нагрузки уменьшит тепловыделение."
+                ),
             }
         )
     bp = metric_cards.get("brake_pressure")
-    if bp and bp["status"] != "normal":
+    if bp and bp["status"] != "normal" and frame.oil_pressure is not None:
+        lo = float(bp["norm_min"])
+        p = float(frame.oil_pressure)
+        deficit = max(0.0, (lo - p) / max(lo, 1e-9))
         recs.append(
             {
                 "priority": "high",
                 "urgency_ru": "По графику остановки",
                 "action_ru": "Проверить тормозную систему на ближайшей станции",
-                "reason_ru": "Давление стабильно ниже нижней границы нормы.",
+                "reason_ru": (
+                    f"Текущее давление {p} bar ниже нижней границы {lo} bar "
+                    f"на {deficit * 100:.1f}% от величины нижнего порога."
+                ),
             }
         )
     if et and et["status"] == "warning":
-        recs.append(
-            {
-                "priority": "medium",
-                "urgency_ru": "Текущая операция",
-                "action_ru": "Мониторить температуру 3 минуты",
-                "reason_ru": "Если температура превысит 92°C до станции — протокол охлаждения.",
-            }
-        )
-    v = metric_cards.get("voltage")
-    if v and v["status"] == "warning":
+        v_m = et.get("value")
+        hi_m = et.get("norm_max")
+        if (
+            v_m is not None
+            and hi_m is not None
+            and float(v_m) > float(hi_m)
+        ):
+            over = float(v_m) - float(hi_m)
+            recs.append(
+                {
+                    "priority": "medium",
+                    "urgency_ru": "Немедленно",
+                    "action_ru": "Ограничить тягу до выхода температуры в норму",
+                    "reason_ru": (
+                        f"T={v_m}°C уже выше верхней границы {hi_m}°C на {over:.1f}°C — "
+                        f"удерживать наблюдение до отката; при дальнейшем росте — протокол охлаждения."
+                    ),
+                }
+            )
+        else:
+            mins = _monitor_minutes_engine_temp(et, trends)
+            trip = _temp_trip_celsius(et)
+            recs.append(
+                {
+                    "priority": "medium",
+                    "urgency_ru": "Текущая операция",
+                    "action_ru": f"Мониторить температуру около {mins} мин",
+                    "reason_ru": (
+                        f"При сохранении тренда контролировать доход до ~{trip:.1f}°C "
+                        f"(ниже верхней границы {et.get('norm_max')}°C); дальше — протокол охлаждения."
+                    ),
+                }
+            )
+    vcard = metric_cards.get("voltage")
+    if vcard and vcard["status"] == "warning" and frame.voltage is not None:
+        lo, hi = float(vcard["norm_min"]), float(vcard["norm_max"])
+        mid = (lo + hi) / 2.0
+        dev_v = abs(float(frame.voltage) - mid)
         recs.append(
             {
                 "priority": "low",
                 "urgency_ru": "На следующем депо",
                 "action_ru": "Зафиксировать событие напряжения для ТО",
-                "reason_ru": "Нестабильное напряжение — возможен износ щёток генератора.",
+                "reason_ru": (
+                    f"Напряжение отклоняется от середины нормы ({mid:.1f} V) на {dev_v:.2f} V "
+                    f"при полосе {lo}–{hi} V — целесообразна запись для обслуживания."
+                ),
             }
         )
-    return recs[:6]
+    return recs[: len(METRIC_BANDS) + 2]
 
 
 def build_live_payload(frame: SimulatorFrame) -> dict[str, Any]:
@@ -311,23 +479,25 @@ def build_live_payload(frame: SimulatorFrame) -> dict[str, Any]:
         penalties.append((band.key, band.label_ru, pen, sev))
 
     metric_penalty_total = sum(p for _, _, p, _ in penalties)
-    index = 100.0 - metric_penalty_total - _error_penalty(frame.error_codes)
+    err_pen = _error_penalty(frame.error_codes, metric_penalty_total)
+    index = 100.0 - metric_penalty_total - err_pen
     index = max(0.0, min(100.0, index))
-    index, status_order = _apply_simulator_hint(frame.health_hint, index, status_order)
-    health_status = _status_from_order(status_order)
-    if index < 50 and health_status == "normal":
-        health_status = "attention"
-    if index < 25:
-        health_status = "critical"
+    index, status_order = _apply_simulator_hint(
+        frame.health_hint, index, status_order, metric_penalty_total
+    )
+    index = max(0.0, min(100.0, index))
+    health_status = _resolve_health_status(index, status_order)
 
     trends = _trends_for_loco(
         frame.locomotive_id,
         {k: v for k, v in snapshot.items() if isinstance(v, (int, float))},
     )
 
-    top_factors = _top_factors(penalties, frame.error_codes)
+    top_factors = _top_factors(
+        penalties, frame.error_codes, metric_penalty_total, limit=len(METRIC_BANDS)
+    )
     alerts = _alerts_from_metrics(frame, metric_cards)
-    recommendations = _recommendations(metric_cards)
+    recommendations = _recommendations(metric_cards, trends, frame)
 
     out: dict[str, Any] = {
         "timestamp": frame.timestamp,

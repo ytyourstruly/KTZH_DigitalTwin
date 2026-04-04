@@ -6,6 +6,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from app.api.routers.auth import router as auth_api_router
+from app.api.routers.index_settings import router as index_settings_router
 from app.api.routers.telemetry import router as telemetry_router
 from app.core.config import get_settings
 from app.core.exception_handlers import register_exception_handlers
@@ -39,31 +40,32 @@ register_exception_handlers(app)
     
 app.include_router(auth_api_router, prefix="/api/v1")
 app.include_router(telemetry_router, prefix="/api/v1")
+app.include_router(index_settings_router, prefix="/api/v1")
 
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/env-configs")
-async def env_configs() -> dict[str, Any]:
-    return {
-        "session_ttl_hours": get_settings().session_ttl_hours,
-        "session_cookie_name": get_settings().session_cookie_name,
-        "session_cookie_path": get_settings().session_cookie_path,
-        "session_cookie_domain": str(get_settings().session_cookie_domain),
-        "session_cookie_secure": str(get_settings().session_cookie_secure),
-        "session_cookie_samesite": get_settings().session_cookie_samesite,
-        "postgres_user": get_settings().postgres_user,
-        "postgres_password": get_settings().postgres_password,
-        "postgres_host": get_settings().postgres_host,
-        "postgres_port": get_settings().postgres_port,
-        "postgres_db": get_settings().postgres_db,
-        "simulator_ingest_enabled": get_settings().simulator_ingest_enabled,
-        "simulator_ws_url": get_settings().simulator_ws_url,
-        "simulator_reconnect_delay_sec": get_settings().simulator_reconnect_delay_sec,
-        "telemetry_snapshot_interval_sec": get_settings().telemetry_snapshot_interval_sec,
-    }
+# @app.get("/env-configs")
+# async def env_configs() -> dict[str, Any]:
+#     return {
+#         "session_ttl_hours": get_settings().session_ttl_hours,
+#         "session_cookie_name": get_settings().session_cookie_name,
+#         "session_cookie_path": get_settings().session_cookie_path,
+#         "session_cookie_domain": str(get_settings().session_cookie_domain),
+#         "session_cookie_secure": str(get_settings().session_cookie_secure),
+#         "session_cookie_samesite": get_settings().session_cookie_samesite,
+#         "postgres_user": get_settings().postgres_user,
+#         "postgres_password": get_settings().postgres_password,
+#         "postgres_host": get_settings().postgres_host,
+#         "postgres_port": get_settings().postgres_port,
+#         "postgres_db": get_settings().postgres_db,
+#         "simulator_ingest_enabled": get_settings().simulator_ingest_enabled,
+#         "simulator_ws_url": get_settings().simulator_ws_url,
+#         "simulator_reconnect_delay_sec": get_settings().simulator_reconnect_delay_sec,
+#         "telemetry_snapshot_interval_sec": get_settings().telemetry_snapshot_interval_sec,
+#     }
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

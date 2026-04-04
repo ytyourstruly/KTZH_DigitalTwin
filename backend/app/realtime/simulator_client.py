@@ -14,7 +14,8 @@ from app.db.session import async_session
 from app.provider.service_provider import ServiceProvider
 from app.realtime.telemetry_hub import broadcast_telemetry
 from app.schemas.simulator_frame import SimulatorFrame
-from app.services.loco.simulator_sync import apply_simulator_frame
+from app.services.loco.simulator_sync import persist_simulator_frame
+from app.services.loco.telemetry_live_view import build_live_payload
 
 logger = get_logger("realtime.simulator_client")
 
@@ -50,18 +51,18 @@ async def run_simulator_ingest_loop() -> None:
                         continue
 
                     snap = _should_snapshot(frame.locomotive_id, snap_iv)
+                    live = build_live_payload(frame)
+                    await broadcast_telemetry(live)
+
                     try:
                         async with async_session() as session:
                             provider = ServiceProvider(session)
-                            payload = await apply_simulator_frame(
-                                provider, frame, write_snapshot=snap
+                            await persist_simulator_frame(
+                                provider, frame, live, write_snapshot=snap
                             )
                             await session.commit()
                     except Exception as exc:
-                        logger.exception("Telemetry ingest failed: %s", exc)
-                        continue
-
-                    await broadcast_telemetry(payload)
+                        logger.exception("Telemetry DB persist failed: %s", exc)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
