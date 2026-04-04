@@ -20,8 +20,8 @@ class Settings(BaseSettings):
     postgres_port: str = "5432"
     postgres_db: str = "app"
 
-    simulator_ingest_enabled: bool = False
-    simulator_ws_url: str = "ws://127.0.0.1:9001/telemetry"
+    simulator_ingest_enabled: bool = True
+    simulator_ws_url: str = "ws://127.0.0.1:8080/telemetry"
     simulator_reconnect_delay_sec: float = 3.0
     telemetry_snapshot_interval_sec: float = 1.0
 
