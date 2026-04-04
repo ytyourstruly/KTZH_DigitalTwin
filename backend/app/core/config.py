@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     session_cookie_domain: str | None = None
     session_cookie_secure: bool = False
     session_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    cors_allow_origins: str = "http://localhost:3000"
     database_url: str = ""
     postgres_user: str = "postgres"
     postgres_password: str = ""
@@ -47,6 +48,11 @@ class Settings(BaseSettings):
             f"postgresql+psycopg://{self.postgres_user}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
+
+    @computed_field
+    @property
+    def cors_allow_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_allow_origins.split(",") if origin.strip()]
 
 
 @lru_cache

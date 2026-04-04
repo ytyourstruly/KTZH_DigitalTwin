@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useTheme } from "next-themes"
-import { Train, Wifi, WifiOff, AlertTriangle, Sun, Moon, ChevronDown, Radio } from "lucide-react"
+import { Train, Wifi, WifiOff, AlertTriangle, Sun, Moon, ChevronDown, Radio, LogOut } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { LOCOMOTIVES, type LocomotiveData } from "@/lib/mock-data"
 
@@ -11,6 +11,9 @@ interface HeaderProps {
   onLocoChange: (loco: LocomotiveData) => void
   isLive: boolean
   onToggleLive: () => void
+  username?: string
+  onLogout?: () => void
+  isLoggingOut?: boolean
 }
 
 function ConnectionBadge({ status }: { status: LocomotiveData["connectionStatus"] }) {
@@ -29,7 +32,15 @@ function ConnectionBadge({ status }: { status: LocomotiveData["connectionStatus"
   )
 }
 
-export function Header({ selectedLoco, onLocoChange, isLive, onToggleLive }: HeaderProps) {
+export function Header({
+  selectedLoco,
+  onLocoChange,
+  isLive,
+  onToggleLive,
+  username,
+  onLogout,
+  isLoggingOut = false,
+}: HeaderProps) {
   const { theme, setTheme } = useTheme()
   const [time, setTime] = useState("")
   const [showDropdown, setShowDropdown] = useState(false)
@@ -140,6 +151,19 @@ export function Header({ selectedLoco, onLocoChange, isLive, onToggleLive }: Hea
             aria-label="Toggle theme"
           >
             {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
+        )}
+
+        {username && <span className="hidden md:inline text-xs font-mono text-muted-foreground">{username}</span>}
+
+        {onLogout && (
+          <button
+            onClick={onLogout}
+            disabled={isLoggingOut}
+            className="flex items-center gap-1.5 text-xs font-mono px-3 py-1.5 rounded border border-border bg-secondary hover:bg-muted transition-colors text-foreground disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <LogOut className="w-3 h-3" />
+            {isLoggingOut ? "..." : "LOGOUT"}
           </button>
         )}
       </div>
