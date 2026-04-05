@@ -1,7 +1,7 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import { RECOMMENDATIONS } from "@/lib/mock-data"
+import { RECOMMENDATIONS, type Recommendation } from "@/lib/mock-data"
 import { AlertTriangle, ArrowRight, ChevronRight, Zap, Info } from "lucide-react"
 
 const PRIORITY_CONFIG = {
@@ -25,7 +25,11 @@ const PRIORITY_CONFIG = {
   },
 }
 
-export function RecommendationsPanel() {
+interface RecommendationsPanelProps {
+  recommendations?: Recommendation[]
+}
+
+export function RecommendationsPanel({ recommendations = RECOMMENDATIONS }: RecommendationsPanelProps) {
   return (
     <div className="bg-card border border-border rounded flex flex-col h-full">
       {/* Header */}
@@ -36,7 +40,7 @@ export function RecommendationsPanel() {
 
       {/* Recommendation list */}
       <div className="flex-1 overflow-y-auto min-h-0 divide-y divide-border">
-        {RECOMMENDATIONS.map((rec) => {
+        {recommendations.map((rec) => {
           const cfg = PRIORITY_CONFIG[rec.priority]
           const Icon = cfg.icon
           return (

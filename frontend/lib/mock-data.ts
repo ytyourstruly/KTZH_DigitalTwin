@@ -19,6 +19,14 @@ export interface HealthFactor {
   trend: "up" | "down" | "stable"
 }
 
+export interface Recommendation {
+  id: string
+  priority: "high" | "medium" | "low"
+  action: string
+  reason: string
+  eta: string
+}
+
 export interface RouteStation {
   id: string
   name: string
@@ -54,7 +62,7 @@ export interface LocomotiveData {
 // Locomotives
 export const LOCOMOTIVES: LocomotiveData[] = [
   {
-    id: "ТЛ-4471",
+    id: "ТЛ-7741",
     name: 'ТЛ-4471 "Карагвнда"',
     model: "Д65 Дизель",
     healthScore: 73,
@@ -228,7 +236,7 @@ export const CHART_DATA = {
   current: generateHistory(305, 30, 7, 60, 66666),
 }
 
-export const RECOMMENDATIONS = [
+export const RECOMMENDATIONS: Recommendation[] = [
   {
     id: "r1",
     priority: "high" as const,

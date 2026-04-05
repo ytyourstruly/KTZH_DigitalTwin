@@ -14,6 +14,7 @@ import {
 } from "recharts"
 import { cn } from "@/lib/utils"
 import { CHART_DATA } from "@/lib/mock-data"
+import type { ChartData } from "@/lib/telemetry"
 
 type TimeRange = "1m" | "5m" | "15m"
 
@@ -140,20 +141,24 @@ function MiniChart({
   )
 }
 
-export function TrendChartsSection() {
+interface TrendChartsSectionProps {
+  chartData?: ChartData
+}
+
+export function TrendChartsSection({ chartData = CHART_DATA }: TrendChartsSectionProps) {
   const [timeRange, setTimeRange] = useState<TimeRange>("5m")
 
   // Merge pressure + temp data
-  const pressureTempData = CHART_DATA.brakePressure.map((d, i) => ({
+  const pressureTempData = chartData.brakePressure.map((d, i) => ({
     time: d.time,
     "Давление тормоза": d.value,
-    "Температура тяги": CHART_DATA.tractionTemp[i]?.value ?? 0,
+    "Температура тяги": chartData.tractionTemp[i]?.value ?? 0,
   }))
 
-  const electricalData = CHART_DATA.voltage.map((d, i) => ({
+  const electricalData = chartData.voltage.map((d, i) => ({
     time: d.time,
     "Напряжение": d.value,
-    "Ток (×0.1)": (CHART_DATA.current[i]?.value ?? 0) * 0.1,
+    "Ток (×0.1)": (chartData.current[i]?.value ?? 0) * 0.1,
   }))
 
   return (
@@ -183,7 +188,7 @@ export function TrendChartsSection() {
       <div className="grid grid-cols-2 gap-3">
         <MiniChart
           title="Индекс состояния"
-          data={CHART_DATA.health}
+          data={chartData.health}
           dataKey="value"
           color="var(--color-chart-1)"
           unit="балл"
@@ -192,7 +197,7 @@ export function TrendChartsSection() {
         />
         <MiniChart
           title="Скорость"
-          data={CHART_DATA.speed}
+          data={chartData.speed}
           dataKey="value"
           color="var(--color-chart-2)"
           unit="км/ч"

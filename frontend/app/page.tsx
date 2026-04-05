@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Header } from "@/components/dashboard/Header"
 import { TrainStatusPanel } from "@/components/dashboard/TrainStatusPanel"
@@ -10,8 +10,9 @@ import { AlertsPanel } from "@/components/dashboard/AlertsPanel"
 import { TrendChartsSection } from "@/components/dashboard/TrendChartsSection"
 import { RouteStrip } from "@/components/dashboard/RouteStrip"
 import { RecommendationsPanel } from "@/components/dashboard/RecommendationsPanel"
-import { LOCOMOTIVES, ALERTS, CHART_DATA, type LocomotiveData } from "@/lib/mock-data"
+import { LOCOMOTIVES, type LocomotiveData } from "@/lib/mock-data"
 import { getCurrentUser, logout, type AuthUser } from "@/lib/auth"
+import { useTelemetry } from "@/hooks/use-telemetry"
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -21,45 +22,8 @@ export default function DashboardPage() {
   const [authChecked, setAuthChecked] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
 
-  // Simulate live telemetry tick — small random drift each second
-  const [liveData, setLiveData] = useState(selectedLoco)
-
-  const tick = useCallback(() => {
-    if (!isLive) return
-    setLiveData((prev) => {
-      const jitter = (range: number) => (Math.random() - 0.5) * range
-      const newSpeed = Math.max(0, Math.min(prev.speedLimit, prev.speed + jitter(4)))
-      const newTemp = Math.max(20, Math.min(110, prev.tractionTemp + jitter(1.5)))
-      const newPressure = Math.max(0, Math.min(8, prev.brakePressure + jitter(0.15)))
-      const newVoltage = Math.max(20, Math.min(30, prev.voltage + jitter(0.2)))
-      const newFuel = Math.max(0, prev.fuelLevel - Math.random() * 0.02)
-
-      return {
-        ...prev,
-        speed: Math.round(newSpeed),
-        tractionTemp: Math.round(newTemp * 10) / 10,
-        brakePressure: Math.round(newPressure * 100) / 100,
-        voltage: Math.round(newVoltage * 10) / 10,
-        fuelLevel: Math.round(newFuel * 10) / 10,
-        healthScore: Math.max(
-          0,
-          Math.min(
-            100,
-            prev.healthScore +
-              (newTemp > 90 ? -0.5 : 0) +
-              (newPressure < 4.5 ? -0.5 : 0.1)
-          )
-        ),
-        healthStatus:
-          prev.healthScore < 50 ? "critical" : prev.healthScore < 70 ? "warning" : "normal",
-      }
-    })
-  }, [isLive])
-
-  useEffect(() => {
-    const interval = setInterval(tick, 2000)
-    return () => clearInterval(interval)
-  }, [tick])
+  const { state: telemetryState } = useTelemetry(selectedLoco, isLive)
+  const liveData = telemetryState.loco
 
   useEffect(() => {
     let active = true
@@ -88,25 +52,33 @@ export default function DashboardPage() {
     }
   }, [router])
 
-  // Sync when user switches locomotive
-  useEffect(() => {
-    setLiveData(selectedLoco)
-  }, [selectedLoco])
-
   // Compute deltas for telemetry cards
-  const speedHistory = CHART_DATA.speed
+  const speedHistory = telemetryState.chartData.speed
   const prevSpeed = speedHistory.length > 4 ? speedHistory[speedHistory.length - 5].value : liveData.speed
   const speedDelta = Math.round(liveData.speed - prevSpeed)
 
-  const prevTemp = CHART_DATA.tractionTemp.length > 4
-    ? CHART_DATA.tractionTemp[CHART_DATA.tractionTemp.length - 5].value
+  const prevTemp = telemetryState.chartData.tractionTemp.length > 4
+    ? telemetryState.chartData.tractionTemp[telemetryState.chartData.tractionTemp.length - 5].value
     : liveData.tractionTemp
   const tempDelta = Math.round((liveData.tractionTemp - prevTemp) * 10) / 10
 
-  const prevPressure = CHART_DATA.brakePressure.length > 4
-    ? CHART_DATA.brakePressure[CHART_DATA.brakePressure.length - 5].value
+  const prevPressure = telemetryState.chartData.brakePressure.length > 4
+    ? telemetryState.chartData.brakePressure[telemetryState.chartData.brakePressure.length - 5].value
     : liveData.brakePressure
   const pressureDelta = Math.round((liveData.brakePressure - prevPressure) * 100) / 100
+
+  const fuelPercent = Math.max(0, Math.min(100, liveData.fuelLevel))
+  const fuelStatus = fuelPercent > 60 ? "normal" : fuelPercent > 30 ? "warning" : "critical"
+  const fuelValueClass = fuelStatus === "normal"
+    ? "text-status-normal"
+    : fuelStatus === "warning"
+    ? "text-status-warning"
+    : "text-status-critical"
+  const fuelBorderClass = fuelStatus === "normal"
+    ? "border-l-status-normal"
+    : fuelStatus === "warning"
+    ? "border-l-status-warning"
+    : "border-l-status-critical"
 
   const handleLogout = async () => {
     setIsLoggingOut(true)
@@ -150,7 +122,7 @@ export default function DashboardPage() {
 
           {/* Health Index — 3 cols */}
           <div className="col-span-12 md:col-span-4 lg:col-span-3 row-span-2">
-            <HealthIndexCard loco={liveData} />
+            <HealthIndexCard loco={liveData} healthFactors={telemetryState.healthFactors} />
           </div>
 
           {/* Telemetry cards — 6 cols, 2 rows worth */}
@@ -160,7 +132,7 @@ export default function DashboardPage() {
               value={liveData.speed}
               unit="км/ч"
               delta={speedDelta}
-              history={CHART_DATA.speed}
+              history={telemetryState.chartData.speed}
               sparklineColor="stroke-chart-2"
               status={
                 liveData.speed > liveData.speedLimit * 0.95
@@ -171,10 +143,10 @@ export default function DashboardPage() {
               }
               tooltip="Текущая скорость. Лимит зависит от участка пути."
             />
-            <div className="bg-card border border-border rounded p-3 flex flex-col gap-2 min-h-[100px] border-l-2 border-l-status-normal">
+            <div className={`bg-card border border-border rounded p-3 flex flex-col gap-2 min-h-[100px] border-l-2 ${fuelBorderClass}`}>
               <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Уровень топлива</span>
               <div className="flex-1 flex flex-col justify-center">
-                <div className="text-3xl font-mono font-bold text-foreground tabular-nums">{liveData.fuelLevel}%</div>
+                <div className={`text-3xl font-mono font-bold tabular-nums ${fuelValueClass}`}>{liveData.fuelLevel}%</div>
                 <div className="text-xs text-muted-foreground font-mono mt-2">
                   {Math.round((liveData.fuelLevel / 100) * 10000)} / 10000 л
                 </div>
@@ -195,7 +167,7 @@ export default function DashboardPage() {
               unit="бар"
               delta={pressureDelta}
               precision={2}
-              history={CHART_DATA.brakePressure}
+              history={telemetryState.chartData.brakePressure}
               sparklineColor="stroke-chart-1"
               status={
                 liveData.brakePressure < liveData.brakePressureNormal[0]
@@ -212,7 +184,7 @@ export default function DashboardPage() {
               value={liveData.tractionTemp}
               unit="°C"
               delta={tempDelta}
-              history={CHART_DATA.tractionTemp}
+              history={telemetryState.chartData.tractionTemp}
               sparklineColor="stroke-chart-4"
               status={
                 liveData.tractionTemp >= liveData.tractionTempLimit
@@ -230,7 +202,7 @@ export default function DashboardPage() {
               unit="В"
               delta={0.1}
               precision={1}
-              history={CHART_DATA.voltage}
+              history={telemetryState.chartData.voltage}
               sparklineColor="stroke-chart-5"
               status={liveData.voltage < 23 ? "warning" : "normal"}
               safeRange={[22, 28]}
@@ -245,7 +217,7 @@ export default function DashboardPage() {
               value={Math.round(liveData.currentAmps)}
               unit="А"
               delta={8}
-              history={CHART_DATA.current}
+              history={telemetryState.chartData.current}
               sparklineColor="stroke-chart-5"
               status={liveData.currentAmps > 400 ? "warning" : "normal"}
               safeRange={[0, 450]}
@@ -273,15 +245,15 @@ export default function DashboardPage() {
 
           {/* Row 3 — Alerts + Recommendations side by side */}
           <div className="col-span-12 md:col-span-7 lg:col-span-8" style={{ minHeight: "260px" }}>
-            <AlertsPanel alerts={ALERTS} />
+            <AlertsPanel alerts={telemetryState.alerts} />
           </div>
           <div className="col-span-12 md:col-span-5 lg:col-span-4" style={{ minHeight: "260px" }}>
-            <RecommendationsPanel />
+            <RecommendationsPanel recommendations={telemetryState.recommendations} />
           </div>
 
           {/* Row 4 — Trend charts full width */}
           <div className="col-span-12">
-            <TrendChartsSection />
+            <TrendChartsSection chartData={telemetryState.chartData} />
           </div>
 
           {/* Row 5 — Route strip full width */}

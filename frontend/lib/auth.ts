@@ -10,8 +10,11 @@ type ApiErrorBody = {
   detail?: string
 }
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1"
+const RAW_API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
+const API_BASE_URL = RAW_API_BASE.endsWith("/api/v1")
+  ? RAW_API_BASE
+  : `${RAW_API_BASE}/api/v1`
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {

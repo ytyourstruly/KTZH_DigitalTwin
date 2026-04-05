@@ -1,7 +1,7 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import type { LocomotiveData } from "@/lib/mock-data"
+import type { HealthFactor, LocomotiveData } from "@/lib/mock-data"
 import { HEALTH_FACTORS } from "@/lib/mock-data"
 import { TrendingUp, TrendingDown, Minus } from "lucide-react"
 
@@ -107,9 +107,10 @@ function HealthGauge({ score, status }: HealthGaugeProps) {
 
 interface HealthIndexCardProps {
   loco: LocomotiveData
+  healthFactors?: HealthFactor[]
 }
 
-export function HealthIndexCard({ loco }: HealthIndexCardProps) {
+export function HealthIndexCard({ loco, healthFactors = HEALTH_FACTORS }: HealthIndexCardProps) {
   const isCritical = loco.healthStatus === "critical"
   const statusLabel = {
     normal: "Нормально",
@@ -154,7 +155,7 @@ export function HealthIndexCard({ loco }: HealthIndexCardProps) {
       {/* Contributing factors */}
       <div className="space-y-1.5">
         <div className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Основные факторы влияния</div>
-        {HEALTH_FACTORS.map((factor) => (
+        {healthFactors.map((factor) => (
           <div key={factor.name} className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 min-w-0">
               {factor.trend === "up" && <TrendingUp className="w-3 h-3 text-status-critical shrink-0" />}
