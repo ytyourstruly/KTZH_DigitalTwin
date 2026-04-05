@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import { Header } from "@/components/dashboard/Header"
 import { TrainStatusPanel } from "@/components/dashboard/TrainStatusPanel"
 import { HealthIndexCard } from "@/components/dashboard/HealthIndexCard"
@@ -10,11 +11,15 @@ import { TrendChartsSection } from "@/components/dashboard/TrendChartsSection"
 import { RouteStrip } from "@/components/dashboard/RouteStrip"
 import { RecommendationsPanel } from "@/components/dashboard/RecommendationsPanel"
 import { LOCOMOTIVES, ALERTS, CHART_DATA, type LocomotiveData } from "@/lib/mock-data"
-import { cn } from "@/lib/utils"
+import { getCurrentUser, logout, type AuthUser } from "@/lib/auth"
 
 export default function DashboardPage() {
+  const router = useRouter()
   const [selectedLoco, setSelectedLoco] = useState<LocomotiveData>(LOCOMOTIVES[0])
   const [isLive, setIsLive] = useState(true)
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [authChecked, setAuthChecked] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
 
   // Simulate live telemetry tick — small random drift each second
   const [liveData, setLiveData] = useState(selectedLoco)
@@ -56,6 +61,33 @@ export default function DashboardPage() {
     return () => clearInterval(interval)
   }, [tick])
 
+  useEffect(() => {
+    let active = true
+
+    const ensureAuth = async () => {
+      try {
+        const currentUser = await getCurrentUser()
+        if (!active) {
+          return
+        }
+        setUser(currentUser)
+        setAuthChecked(true)
+      } catch {
+        if (!active) {
+          return
+        }
+        setAuthChecked(true)
+        router.replace("/login")
+      }
+    }
+
+    void ensureAuth()
+
+    return () => {
+      active = false
+    }
+  }, [router])
+
   // Sync when user switches locomotive
   useEffect(() => {
     setLiveData(selectedLoco)
@@ -76,18 +108,22 @@ export default function DashboardPage() {
     : liveData.brakePressure
   const pressureDelta = Math.round((liveData.brakePressure - prevPressure) * 100) / 100
 
-  const fuelPercent = Math.max(0, Math.min(100, liveData.fuelLevel))
-  const fuelStatus = fuelPercent > 60 ? "normal" : fuelPercent > 30 ? "warning" : "critical"
-  const fuelValueClass = fuelStatus === "normal"
-    ? "text-status-normal"
-    : fuelStatus === "warning"
-    ? "text-status-warning"
-    : "text-status-critical"
-  const fuelBorderClass = fuelStatus === "normal"
-    ? "border-l-status-normal"
-    : fuelStatus === "warning"
-    ? "border-l-status-warning"
-    : "border-l-status-critical"
+  const handleLogout = async () => {
+    setIsLoggingOut(true)
+    try {
+      await logout()
+    } finally {
+      router.replace("/login")
+    }
+  }
+
+  if (!authChecked || user === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background text-muted-foreground font-mono">
+        Loading session...
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background">
@@ -97,6 +133,9 @@ export default function DashboardPage() {
         onLocoChange={setSelectedLoco}
         isLive={isLive}
         onToggleLive={() => setIsLive((v) => !v)}
+        username={user.username}
+        onLogout={handleLogout}
+        isLoggingOut={isLoggingOut}
       />
 
       {/* Main dashboard grid */}
@@ -132,15 +171,10 @@ export default function DashboardPage() {
               }
               tooltip="Текущая скорость. Лимит зависит от участка пути."
             />
-            <div className={cn(
-              "bg-card border border-border rounded p-3 flex flex-col gap-2 min-h-[100px] border-l-2",
-              fuelBorderClass
-            )}>
+            <div className="bg-card border border-border rounded p-3 flex flex-col gap-2 min-h-[100px] border-l-2 border-l-status-normal">
               <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Уровень топлива</span>
               <div className="flex-1 flex flex-col justify-center">
-                <div className={cn("text-3xl font-mono font-bold tabular-nums", fuelValueClass)}>
-                  {liveData.fuelLevel}%
-                </div>
+                <div className="text-3xl font-mono font-bold text-foreground tabular-nums">{liveData.fuelLevel}%</div>
                 <div className="text-xs text-muted-foreground font-mono mt-2">
                   {Math.round((liveData.fuelLevel / 100) * 10000)} / 10000 л
                 </div>
