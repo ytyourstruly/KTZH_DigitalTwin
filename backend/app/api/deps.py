@@ -6,9 +6,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.exceptions import UnauthorizedError
+from app.core.exceptions import ForbiddenError, UnauthorizedError
 from app.db.session import async_session
-from app.models.auth import User
+from app.models.auth import User, UserRole
 from app.provider import ServiceProvider
 from app.services.auth import AuthenticationService
 
@@ -81,3 +81,12 @@ async def get_current_user(
 
 
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
+
+async def require_admin(user: CurrentUserDep) -> User:
+    if user.role != UserRole.admin:
+        raise ForbiddenError("Требуется роль администратора", code="admin_required")
+    return user
+
+
+AdminUserDep = Annotated[User, Depends(require_admin)]

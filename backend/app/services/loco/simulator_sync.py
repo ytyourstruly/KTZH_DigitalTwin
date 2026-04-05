@@ -1,4 +1,4 @@
-"""Map simulator WebSocket frames to ``loco`` tables (current + optional snapshot)."""
+"""Persist simulator frames to ``loco`` tables using precomputed live view (see ``telemetry_live_view``)."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from app.models.loco import (
 )
 from app.provider.service_provider import ServiceProvider
 from app.schemas.simulator_frame import SimulatorFrame
+from app.services.loco.telemetry_live_view import remember_locomotive_uuid
 
 
 def _parse_ts(iso: str) -> datetime:
@@ -21,15 +22,11 @@ def _parse_ts(iso: str) -> datetime:
     return datetime.fromisoformat(s).astimezone(timezone.utc)
 
 
-def _hint_to_score(hint: str | None) -> tuple[float, HealthStatus]:
-    h = (hint or "ok").lower()
-    if h == "critical":
-        return 28.0, HealthStatus.critical
-    if h in ("warning_high", "spike"):
-        return 55.0, HealthStatus.attention
-    if h in ("warning_low", "degrading", "glitch"):
-        return 72.0, HealthStatus.attention
-    return 92.0, HealthStatus.normal
+def _health_status_from_live(value: str) -> HealthStatus:
+    try:
+        return HealthStatus(value)
+    except ValueError:
+        return HealthStatus.unknown
 
 
 def _fill_telemetry_row(
@@ -55,12 +52,14 @@ def _fill_telemetry_row(
     row.health_status = health_status
 
 
-async def apply_simulator_frame(
+async def persist_simulator_frame(
     provider: ServiceProvider,
     frame: SimulatorFrame,
+    live: dict[str, Any],
     *,
     write_snapshot: bool,
-) -> dict[str, Any]:
+) -> None:
+    """Writes current row and optional snapshot; ``live`` is the payload already sent to clients."""
     loco_svc = provider.locomotive_service()
     tel_svc = provider.telemetry_service()
     ts = _parse_ts(frame.timestamp)
@@ -76,7 +75,8 @@ async def apply_simulator_frame(
         await loco_svc.create(loco)
         await provider.session.flush()
 
-    health_index, health_status = _hint_to_score(frame.health_hint)
+    health_index = float(live["health_index"])
+    health_status = _health_status_from_live(str(live["health_status"]))
 
     cur = await tel_svc.get_current(loco.id)
     if cur is None:
@@ -109,19 +109,4 @@ async def apply_simulator_frame(
         )
         await tel_svc.append_snapshot(snap)
 
-    return {
-        "timestamp": frame.timestamp,
-        "locomotive_id": frame.locomotive_id,
-        "locomotive_uuid": str(loco.id),
-        "speed": frame.speed,
-        "fuel_level": frame.fuel_level,
-        "engine_temp": frame.engine_temp,
-        "oil_pressure": frame.oil_pressure,
-        "voltage": frame.voltage,
-        "current": frame.current,
-        "error_codes": frame.error_codes,
-        "health_hint": frame.health_hint,
-        "health_index": health_index,
-        "health_status": health_status.value,
-        "mode": frame.mode,
-    }
+    remember_locomotive_uuid(frame.locomotive_id, str(loco.id))
