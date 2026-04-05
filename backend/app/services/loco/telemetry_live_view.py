@@ -138,11 +138,16 @@ def _apply_simulator_hint(
 
 def _resolve_health_status(index: float, status_order: int) -> str:
     """
-    Общий статус согласован с интегральным индексом (как в кейсе: норма / внимание / критично).
+    Сначала интегральный индекс даёт базовую оценку (норма / внимание / критично).
 
-    Красные карточки метрик не переводят весь поезд в «критично», если индекс ещё высокий:
-    тогда минимум «внимание». «Критично» только при низком индексе или совокупной тяжести.
+    Если **хотя бы одна метрика** в UI-состоянии ``critical`` (выход за порог ratio > 2),
+    общий ``health_status`` всегда ``critical``: один критичный узел для машиниста важнее
+    того, что усреднённый индекс ещё может оставаться высоким из‑за остальных «зелёных» полей.
+    Предупреждения без critical лишь не дают оставаться «норма» — поднимают до ``attention``.
     """
+    if status_order >= 2:
+        return "critical"
+
     if index >= 80.0:
         overall = "normal"
     elif index >= 50.0:
@@ -150,10 +155,6 @@ def _resolve_health_status(index: float, status_order: int) -> str:
     else:
         overall = "critical"
 
-    if status_order >= 2:
-        if index < 45.0:
-            return "critical"
-        return "attention"
     if status_order >= 1 and overall == "normal":
         return "attention"
     return overall
