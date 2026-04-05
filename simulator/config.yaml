@@ -1,0 +1,32 @@
+# Locomotive Telemetry Simulator Configuration
+
+simulator:
+  locomotive_id: "LOCO-7741"
+  host: "0.0.0.0"
+  port: 9001
+
+  # Message interval in milliseconds (default)
+  interval_ms: 300
+
+  # Auto-switch modes every N seconds (0 = disabled)
+  auto_switch_interval_sec: 30
+
+  # Burst multiplier for high-load mode
+  burst_multiplier: 10
+
+fault_injection:
+  # Randomly drop WebSocket connections
+  random_disconnects: false
+  disconnect_probability: 0.001   # per message
+
+  # Message jitter: adds 0–jitter_max_ms random delay
+  jitter_enabled: true
+  jitter_max_ms: 80
+
+  # Randomly omit fields to test backend validation
+  missing_fields_enabled: false
+  missing_field_probability: 0.02  # per message
+
+logging:
+  level: "INFO"   # DEBUG | INFO | WARNING | ERROR
+  format: "%(asctime)s [%(levelname)s] %(name)s — %(message)s"
